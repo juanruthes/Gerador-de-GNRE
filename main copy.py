@@ -3092,8 +3092,8 @@ def gerar_ap():
     naoContribuintesDia = pd.read_excel(
         r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
 
-    dataEmissao = "12/07/2024"
-    dataVencimento = "12/07/2024"
+    dataEmissao = "16/07/2024"
+    dataVencimento = "16/07/2024"
 
     codigoUF = naoContribuintesDia['Estado/Município']
     codigoFilial = naoContribuintesDia['Departamento_x']
@@ -3112,7 +3112,7 @@ def gerar_ap():
     pa.press("tab")
     pa.write("tfzcpc103mt00")
     pa.press("enter")
-    time.sleep(3)
+    time.sleep(5)
     pa.moveTo(x=156, y=282)
     pa.click()
     pa.moveTo(x=30, y=167)
@@ -3136,6 +3136,9 @@ def gerar_ap():
                 pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
                     naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
             elif codigoFilial[linha] == "BR0104":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+            elif codigoFilial[linha] == "BR0105":
                 pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
                     naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
 
@@ -3233,6 +3236,10 @@ def gerar_ap():
             elif codigoFilial[linha] == "BR0104":
                 pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
                     naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
+            elif codigoFilial[linha] == "BR0105":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+
             pa.press("tab")
 
             pa.write(str(aprovador))  # Aprovador
@@ -3326,6 +3333,9 @@ def gerar_ap():
                 pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
                     naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
             elif codigoFilial[linha] == "BR0104":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+            elif codigoFilial[linha] == "BR0105":
                 pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
                     naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
 
@@ -3694,4 +3704,4 @@ def gerar_ap():
 
 if __name__ == '__main__':
     port = int(os.getenv('PORT'), '5000')
-    app.run(host='0.0.0.0', port = port )
+    app.run(host='0.0.0.0', port=port)
