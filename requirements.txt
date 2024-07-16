@@ -2,7 +2,6 @@ a-pandas-ex-less-memory-more-speed==0.38
 altgraph==0.17.3
 anyio==3.7.1
 asgiref==3.7.2
-aspose-cells-python==24.2.0
 asttokens==2.2.1
 attrs==23.2.0
 backcall==0.2.0
