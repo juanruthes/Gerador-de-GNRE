@@ -1,1 +1,0 @@
-web: gunicorn -b :$PORT main copy:app
