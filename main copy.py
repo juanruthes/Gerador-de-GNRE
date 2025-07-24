@@ -1,23 +1,26 @@
 import os
 from flask import Flask, render_template, request, jsonify, send_from_directory
 from werkzeug.utils import secure_filename
-from datetime import date
+from datetime import date, datetime
 import pyautogui as pa
 import time
 import pyperclip
-
 import xml.etree.ElementTree as ET
 import pandas as pd
+import cv2 
+from pyzbar.pyzbar import decode, ZBarSymbol
+from pdf2image import convert_from_path
+from routes.home import home_route
 
 aprovador = "013078"
 
 app = Flask(__name__, template_folder="templates")
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'data')
-DIRXML = "C:\\Users\\juan.santos\\Desktop\\Gerador de GNRE\\static\\data\\xml"
-DIRXLSX = "C:\\Users\\juan.santos\\Desktop\\Gerador de GNRE\\static\\data\\arquivo-nao-contribuinte"
+DIRXML = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\static\\data\\xml"
+DIRXLSX = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\Gerador de GNRE - Copia\\static\\data\\arquivo-nao-contribuinte"
 
-caminhoPasta = r"U:\Contabilidade\Movimento.Diario\Impostos e Contribuições\GNRE 2024\07. ARQUIVO GNRE JUL 2024"
+caminhoPasta = r"U:\Contabilidade\Movimento.Diario\Impostos e Contribuições\GNRE"
 
 
 @ app.route("/")
@@ -43,14 +46,19 @@ def data_linhasnotafiscal():
     return render_template("index.html", msg=mensagem)
 
 
-@ app.route("/static/data/planilha-gerada", methods=["POST"])
+@ app.route("/static/data/planilha-gerada", methods=["GET", "POST"])
 def planilha_gerada():
 
+    print(request.form.get('vencimento-data'))
+
+
+    data_venc = request.form.get('vencimento-data')
+
     linhas_nfe = pd.read_excel(
-        r'C:\Users\juan.santos\Desktop\Gerador de GNRE\data\Linhas_da_NFE.xlsx')
+        r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\data\Linhas_da_NFE.xlsx')
 
     cadastro = pd.read_excel(
-        r'C:\Users\juan.santos\Desktop\Gerador de GNRE\data\Parceiro de negocios.xlsx')
+        r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\data\Parceiro de negocios.xlsx')
 
     linhas_nfe.drop(['Import Status',
                     'Import Code',
@@ -129,7 +137,7 @@ def planilha_gerada():
     linhas_nfe_difal
 
     linhas_nfe_difal['Valor Total DIFAL'] = linhas_nfe_difal['Valor UF Destino'] + \
-        linhas_nfe_difal['Valor Fundo Combate Pobreza']
+        linhas_nfe_difal["Valor Fundo Combate Pobreza"]
     linhas_nfe_difal
 
     # Deletando linhas cujo "Valor UF destino" é zero
@@ -140,7 +148,7 @@ def planilha_gerada():
     # Tratamento com a planilha Nota Fiscal
 
     notafiscal = pd.read_excel(
-        r'C:\Users\juan.santos\Desktop\Gerador de GNRE\data\Nota_Fiscal.xlsx')
+        r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\data\Nota_Fiscal.xlsx')
 
     notafiscal.drop(['Import Status',
                     'Import Code',
@@ -250,7 +258,7 @@ def planilha_gerada():
     # Tratamento das colunas "Data de emissao, Entidade Fiscal, Cidade"
 
     notafiscal['Data de emissão'] = notafiscal['Data de emissão'].astype(
-        'date64[pyarrow]')
+        'datetime64[ns]')
     notafiscal
     notafiscal['Entidade fiscal'] = notafiscal['Entidade fiscal'].astype(
         'string')
@@ -303,63 +311,70 @@ def planilha_gerada():
     notafiscal = notafiscal.dropna(subset=["Parceiro de negócios faturado"])
     notafiscal
 
-    notafiscal = notafiscal[(
+    notafiscal = notafiscal[(   
         notafiscal[['Estado/Município']] != "SP").all(axis=1)]
     notafiscal
 
     notafiscal = notafiscal[(
         notafiscal[['Estado/Município']] != "PE").all(axis=1)]
     notafiscal
+    
+    notafiscal["Data de vencimento"] = pd.to_datetime(data_venc)
+    notafiscal["Data de vencimento"] = notafiscal["Data de vencimento"].dt.strftime('%Y-%m-%d')
+    
+    notafiscal = notafiscal.rename(columns={"NFE":"NFE", "Unnamed: 12":"Razão Social", "Departamento_x":"Departamento", "Estado/Município": "UF", "Parceiro de negócios faturado":"PN", "Número do documento_x":"NFE", "Valor Fundo Combate Pobreza":"Valor FCP"})
+
 
     notafiscal.to_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", index=False)
+        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", index=False)
 
     # Tratamento da segunda planilha
     nfe_table = pd.read_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx")
+        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx")
 
     nfe_table.drop(['Referência fiscal', 'Nota fiscal eletrônica',
-                    'Status transmissão', 'Tipo doc. fiscal', 'Departamento_x', 'Localizador', 'Entidade fiscal', 'Cidade', 'Tipo identificador fiscal', 'Mês Referencia', 'Ano Referencia', 'Parc. Negócios NF Fatura'],
+                    'Status transmissão', 'Tipo doc. fiscal', 'Departamento', 'Localizador', 'Entidade fiscal', 'Cidade', 'Tipo identificador fiscal', 'Mês Referencia', 'Ano Referencia', 'Parc. Negócios NF Fatura'],
                    axis=1, inplace=True)
     nfe_table
+    
+    #formatando data como DD/MM/AAAA
+    nfe_table['Valor UF Destino'] = nfe_table['Valor UF Destino'].map(
+        '{:_.2f}'.format)
+    nfe_table
+    nfe_table['Valor FCP'] = nfe_table['Valor FCP'].map(
+        '{:_.2f}'.format)
+    nfe_table
+    nfe_table['Valor Total DIFAL'] = nfe_table['Valor Total DIFAL'].map(
+        '{:_.2f}'.format)
+    nfe_table
 
-    nfe_table = nfe_table.rename(
-        {"Unnamed: 12": "Razão Social", "Número do documento_x": "NFE", "Estado/Município": "UF", "Valor Fundo Combate Pobreza": "Valor FCP", "Parceiro de negócios faturado": "PN"}, axis='columns')
-
-    nfe_table.to_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\Não Contribuintes Visual.xlsx", index=False)
-
-    nfe_table1 = pd.read_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\Não Contribuintes Visual.xlsx")
-
-    nfe_table1
-
-   # Inserir mensagem abaixo da caixa
-    return render_template("index.html", tables=[nfe_table1.to_html()], titles=[''])
+    nfe_table['Valor UF Destino'] = nfe_table['Valor UF Destino'].str.replace('.',',').str.replace('_','.')
+    nfe_table['Valor FCP'] = nfe_table['Valor FCP'].str.replace('.',',').str.replace('_','.')
+    nfe_table['Valor Total DIFAL'] = nfe_table['Valor Total DIFAL'].str.replace('.',',').str.replace('_','.')
 
 
-@ app.route("/xml-gerado", methods=["POST"])
-def xml_gerada():
+    nfe_table["Data de emissão"] = pd.to_datetime(nfe_table["Data de emissão"])
+
+    nfe_table["Data de emissão"] = nfe_table["Data de emissão"].dt.strftime('%d/%m/%Y')
+
+    nfe_table["Data de vencimento"] = pd.to_datetime(nfe_table["Data de vencimento"])
+
+    nfe_table["Data de vencimento"] = nfe_table["Data de vencimento"].dt.strftime('%d/%m/%Y')
+
+
+    #Gerando XML
 
     naoContribuintesDia = pd.read_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
+        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
 
     loteGNRE = ET.Element('TLote_GNRE')
     loteGNRE.attrib["versao"] = '2.00'
     loteGNRE.attrib["xmlns"] = 'http://www.gnre.pe.gov.br'
     guias = ET.SubElement(loteGNRE, 'guias')
-
-    dataVcto = request.form.get('btn-data')
-    print(dataVcto)
-
-    data_atual = str(date.today())
-    # data_atual = "2024-07-05"
-
-    dataVcto = data_atual
-
+    
     linha = 0
 
-    for unidadeFederativa in naoContribuintesDia['Estado/Município']:
+    for unidadeFederativa in naoContribuintesDia['UF']:
 
         if unidadeFederativa == "AL":
             # Dados da GNRE (TDados GNRE)
@@ -372,7 +387,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -426,7 +441,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -439,7 +454,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -472,7 +488,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -493,7 +509,8 @@ def xml_gerada():
 
             # Data de pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # # GNRE 100129
 
@@ -507,7 +524,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -564,7 +581,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -577,13 +594,14 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPrincipal = ET.SubElement(item, 'valor')
             valorPrincipal.attrib["tipo"] = '11'
             valorPrincipal.text = str(
-                naoContribuintesDia.loc[linha, "Valor Fundo Combate Pobreza"])
+                naoContribuintesDia.loc[linha, "Valor FCP"])
 
             # Convenio
             convenio = ET.SubElement(item, 'convenio')
@@ -608,7 +626,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
             municipioDestinatario.text = str(
@@ -624,10 +642,11 @@ def xml_gerada():
             # Valor Total
             valorGNRE = ET.SubElement(dadosGNRE, 'valorGNRE')
             valorGNRE.text = naoContribuintesDia.loc[linha,
-                                                     "Valor Fundo Combate Pobreza"]
+                                                     "Valor FCP"]
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "AC":
 
@@ -641,7 +660,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -695,7 +714,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -708,7 +727,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -736,7 +756,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -756,7 +776,8 @@ def xml_gerada():
                                                      "Valor Total DIFAL"]
 
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "AM":
 
@@ -770,7 +791,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -839,7 +860,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -872,7 +894,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
             municipioDestinatario.text = str(
@@ -882,7 +904,8 @@ def xml_gerada():
                                                      "Valor Total DIFAL"]
 
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "AP":
 
@@ -914,7 +937,7 @@ def xml_gerada():
             telefone = ET.SubElement(contribuinteEmitente, 'telefone')
             telefone.text = '4133168400'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -968,7 +991,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -982,7 +1005,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -1014,7 +1038,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1034,7 +1058,8 @@ def xml_gerada():
                                                      "Valor Total DIFAL"]
 
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "BA":
             # Dados da GNRE (TDados GNRE)
@@ -1045,7 +1070,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1107,7 +1132,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -1126,7 +1152,8 @@ def xml_gerada():
             valorGNRE.text = naoContribuintesDia.loc[linha,
                                                      "Valor Total DIFAL"]
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "CE":
 
@@ -1140,7 +1167,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1194,11 +1221,12 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -1226,7 +1254,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1239,7 +1267,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "GO":
 
@@ -1252,7 +1281,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1305,7 +1334,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -1318,7 +1347,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -1351,7 +1381,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1371,7 +1401,8 @@ def xml_gerada():
             valorGNRE.text = valorPagamento
 
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "MA":
 
@@ -1384,7 +1415,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1438,7 +1469,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Produto
             produto = ET.SubElement(item, 'produto')
@@ -1455,7 +1486,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -1488,7 +1520,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1509,7 +1541,8 @@ def xml_gerada():
 
             # Data de pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "MG":
 
@@ -1522,7 +1555,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1576,10 +1609,11 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -1598,7 +1632,8 @@ def xml_gerada():
 
             # Data de pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "MS":
 
@@ -1611,7 +1646,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1663,7 +1698,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -1695,7 +1731,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1716,7 +1752,8 @@ def xml_gerada():
 
             # Data de pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "MT":
 
@@ -1730,7 +1767,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1800,7 +1837,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -1833,7 +1871,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1846,7 +1884,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "PA":
 
@@ -1859,7 +1898,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -1913,7 +1952,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -1926,7 +1965,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -1959,7 +1999,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -1980,7 +2020,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "PB":
 
@@ -1993,7 +2034,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2054,7 +2095,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -2082,7 +2124,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "PI":
             # Dados da GNRE (TDados GNRE)
@@ -2094,7 +2137,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2148,11 +2191,12 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -2185,7 +2229,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -2198,7 +2242,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == 'RJ':
 
@@ -2212,7 +2257,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2272,14 +2317,15 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
 
-            # number_string_vlFcp = naoContribuintesDia.loc[linha, "Valor Fundo Combate Pobreza"]
+            # number_string_vlFcp = naoContribuintesDia.loc[linha, "Valor FCP"]
             valorPagamentoFCP = str(naoContribuintesDia.loc[linha,
-                                                            "Valor Fundo Combate Pobreza"])
+                                                            "Valor FCP"])
 
             # number_string_vlTotal = naoContribuintesDia.loc[linha, "Total"]
             valorTotal = str(naoContribuintesDia.loc[linha,
@@ -2317,7 +2363,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -2339,7 +2385,8 @@ def xml_gerada():
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
             # conversaoData = pd.to_datetime(
             #     naoContribuintesDia.loc[linha, "Data de emissão"]).dt.date
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "RN":
 
@@ -2352,7 +2399,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2419,7 +2466,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -2451,7 +2499,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -2464,7 +2512,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "RO":
 
@@ -2477,7 +2526,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2531,7 +2580,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -2544,7 +2593,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             valorPagamento = str(
                 naoContribuintesDia.loc[linha, "Valor UF Destino"])
@@ -2572,7 +2622,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "RS":
 
@@ -2585,7 +2636,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2643,7 +2694,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = naoContribuintesDia.loc[linha, "Valor UF Destino"]
@@ -2674,7 +2726,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -2687,7 +2739,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "SC":
 
@@ -2700,7 +2753,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2758,7 +2811,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -2772,7 +2826,8 @@ def xml_gerada():
             valorGNRE.text = valorPagamento
 
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "SE":
 
@@ -2785,7 +2840,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2839,7 +2894,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -2852,7 +2907,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -2880,7 +2936,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -2901,7 +2957,8 @@ def xml_gerada():
 
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         elif unidadeFederativa == "TO":
 
@@ -2914,7 +2971,7 @@ def xml_gerada():
             tipoGnre = ET.SubElement(dadosGNRE, 'tipoGnre')
             tipoGnre.text = '0'
 
-            if naoContribuintesDia.loc[linha, 'Departamento_x'] == "BR0201":
+            if naoContribuintesDia.loc[linha, 'Departamento'] == "BR0201":
                 # Dados do Contribuinte SAO PAULO
                 contribuinteEmitente = ET.SubElement(
                     dadosGNRE, 'contribuinteEmitente')
@@ -2968,7 +3025,7 @@ def xml_gerada():
             documentoOrigem = ET.SubElement(item, 'documentoOrigem')
             documentoOrigem.attrib["tipo"] = '10'
             documentoOrigem.text = str(
-                naoContribuintesDia.loc[linha, "Número do documento_x"])
+                naoContribuintesDia.loc[linha, "NFE"])
 
             # Referencia
             referencia = ET.SubElement(item, 'referencia')
@@ -2981,7 +3038,8 @@ def xml_gerada():
 
             # dataVencimento
             dataVencimento = ET.SubElement(item, 'dataVencimento')
-            dataVencimento.text = dataVcto
+            dataVencimento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
             # Valor Principal
             valorPagamento = str(
@@ -3009,7 +3067,7 @@ def xml_gerada():
             razaoSocialDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'razaoSocial')
             razaoSocialDestinatario.text = str(
-                naoContribuintesDia.loc[linha, "Unnamed: 12"])
+                naoContribuintesDia.loc[linha, "Razão Social"])
 
             municipioDestinatario = ET.SubElement(
                 contribuinteDestinatario, 'municipio')
@@ -3029,19 +3087,36 @@ def xml_gerada():
             valorGNRE.text = valorPagamento
             # Data Pagamento
             dataPagamento = ET.SubElement(dadosGNRE, 'dataPagamento')
-            dataPagamento.text = dataVcto
+            dataPagamento.text = str(
+                naoContribuintesDia.loc[linha, "Data de vencimento"])
 
         linha = linha + 1
 
+
+    now1 = datetime.now()
+    formatted_date1 = now1.strftime('%d-%m-%Y-%H-%M-%S')
+
+
     tree = ET.ElementTree(loteGNRE)
-    tree.write(r'C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\xml\loteGNRE.xml',
+
+
+    # caminhoPastaTrat = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\static\\data\\xml\\"+"loteGNRE-"+formatted_date1+".xml"
+    caminhoPastaTrat = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\static\\data\\xml\\"+"loteGNRE.xml"
+    caminhoPastaTrat
+
+    tree.write(caminhoPastaTrat,
                xml_declaration=True, encoding='utf-8')
 
+    #Gerando visual tabela
+    nfe_table.to_excel(
+        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\Não Contribuintes Visual.xlsx", index=False)
+
     nfe_table1 = pd.read_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\Não Contribuintes Visual.xlsx")
+        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\Não Contribuintes Visual.xlsx")
 
     nfe_table1
 
+   # Inserir mensagem abaixo da caixa
     return render_template("index.html", tables=[nfe_table1.to_html()], titles=[''])
 
 
@@ -3089,14 +3164,37 @@ def gerar_ap():
 
     pa.PAUSE = 0.8
 
+    print(request.form.get('check-aprovador'))
+
     naoContribuintesDia = pd.read_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
+        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
+    
+    #formatando data como DD/MM/AAAA
+    naoContribuintesDia["Data de emissão"] = pd.to_datetime(naoContribuintesDia["Data de emissão"])
+    naoContribuintesDia["Data de emissão"] = naoContribuintesDia["Data de emissão"].dt.strftime('%d/%m/%Y')
 
-    dataEmissao = "16/07/2024"
-    dataVencimento = "16/07/2024"
+    naoContribuintesDia["Data de vencimento"] = pd.to_datetime(naoContribuintesDia["Data de vencimento"])
+    naoContribuintesDia["Data de vencimento"] = naoContribuintesDia["Data de vencimento"].dt.strftime('%d/%m/%Y')
 
-    codigoUF = naoContribuintesDia['Estado/Município']
-    codigoFilial = naoContribuintesDia['Departamento_x']
+    dataEmissao = naoContribuintesDia['Data de emissão']
+    dataVencimento = naoContribuintesDia['Data de vencimento']
+    
+    naoContribuintesDia['Mês Referencia'] = naoContribuintesDia['Mês Referencia'].astype(
+        'string')
+    naoContribuintesDia['Ano Referencia'] = naoContribuintesDia['Ano Referencia'].astype(
+        'string')
+
+    codigoUF = naoContribuintesDia['UF']
+    codigoFilial = naoContribuintesDia['Departamento']
+
+    # naoContribuintesDia['Mês Referencia'] = naoContribuintesDia['Mês Referencia'].astype(
+    #     'string')
+    
+    mesRef = naoContribuintesDia['Mês Referencia']
+
+    print(naoContribuintesDia.dtypes)
+
+
 
     linha = 0
 
@@ -3127,20 +3225,20 @@ def gerar_ap():
             time.sleep(1)
 
             if codigoFilial[linha] == "BR0201":
-                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0101":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0103":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0104":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0105":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
 
             pa.press("tab")
 
@@ -3162,7 +3260,7 @@ def gerar_ap():
             pa.press("tab")
             # Nota Fiscal
             pa.write(
-                str(naoContribuintesDia.loc[linha, "Número do documento_x"]))
+                str(naoContribuintesDia.loc[linha, "NFE"]))
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
@@ -3171,7 +3269,7 @@ def gerar_ap():
             pa.press("tab")
             time.sleep(1)
             # Data de vencimento campo prioridade
-            pa.write(str("VENC: " + dataVencimento))
+            pa.write(str("VENC: " + naoContribuintesDia.loc[linha, "Data de vencimento"]))
             pa.press("tab")
             time.sleep(0.5)
             pa.press("tab")
@@ -3181,7 +3279,7 @@ def gerar_ap():
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
-            pa.write(str(dataEmissao))
+            pa.write(str(naoContribuintesDia.loc[linha, "Data de emissão"]))
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
@@ -3201,19 +3299,14 @@ def gerar_ap():
             pa.press("tab")
             pa.write(str("BR1104"))
             pa.press("tab")
-            pa.moveTo(x=125, y=636)  # Programação de pagamento
+
+            pa.moveTo(x=143, y=630) 
             pa.click()
-            time.sleep(1)
-            pa.moveTo(x=49, y=717)  # Selecionar programação de pagamento
+            pa.moveTo(x=50, y=715)  # Programação de pagamento
             pa.click()
-            pa.press("del")
-            pa.press("left")
-            pa.press("enter")
-            pa.press("enter")
-            pa.moveTo(x=33, y=660)  # Programação de pagamento
-            pa.click()
-            pa.write(str(dataVencimento))
+            pa.write(str("08/05/2025"))
             pa.press("tab")
+
             pa.moveTo(x=32, y=194)  # Sair salvando
             pa.click()
 
@@ -3225,20 +3318,20 @@ def gerar_ap():
             time.sleep(1)
 
             if codigoFilial[linha] == "BR0201":
-                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
+                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
             elif codigoFilial[linha] == "BR0101":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
             elif codigoFilial[linha] == "BR0103":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
             elif codigoFilial[linha] == "BR0104":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
             elif codigoFilial[linha] == "BR0105":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
 
             pa.press("tab")
 
@@ -3260,7 +3353,7 @@ def gerar_ap():
             pa.press("tab")
             # Nota Fiscal
             pa.write(
-                str(naoContribuintesDia.loc[linha, "Número do documento_x"]))
+                str(naoContribuintesDia.loc[linha, "NFE"]))
             pa.press("tab")
             pa.write(str("FCP"))  # apagar
             pa.press("tab")  # apagar
@@ -3270,7 +3363,7 @@ def gerar_ap():
             pa.press("tab")
             time.sleep(1)
             # Data de vencimento campo prioridade
-            pa.write(str("VENC: " + dataVencimento))
+            pa.write(str("VENC: " + naoContribuintesDia.loc[linha, "Data de vencimento"]))
             pa.press("tab")
             time.sleep(0.5)
             pa.press("tab")
@@ -3280,7 +3373,7 @@ def gerar_ap():
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
-            pa.write(str(dataEmissao))
+            pa.write(str(naoContribuintesDia.loc[linha, "Data de emissão"]))
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
@@ -3295,24 +3388,20 @@ def gerar_ap():
             pa.write(str("1"))
             pa.press("tab")
             # Valor
-            pa.write(str(naoContribuintesDia.loc[linha, "Valor Total DIFAL"]))
+            pa.write(
+                str(naoContribuintesDia.loc[linha, "Valor FCP"]))
             pa.press("tab")
             pa.press("tab")
             pa.write(str("BR1104"))
             pa.press("tab")
-            pa.moveTo(x=125, y=636)  # Programação de pagamento
+
+            pa.moveTo(x=143, y=630) 
             pa.click()
-            time.sleep(1)
-            pa.moveTo(x=49, y=717)  # Selecionar programação de pagamento
+            pa.moveTo(x=50, y=715)  # Programação de pagamento
             pa.click()
-            pa.press("del")
-            pa.press("left")
-            pa.press("enter")
-            pa.press("enter")
-            pa.moveTo(x=33, y=660)  # Programação de pagamento
-            pa.click()
-            pa.write(str(dataVencimento))
+            pa.write(str("08/05/2025"))
             pa.press("tab")
+
             pa.moveTo(x=32, y=194)  # Sair salvando
             pa.click()
 
@@ -3324,20 +3413,20 @@ def gerar_ap():
             time.sleep(1)
 
             if codigoFilial[linha] == "BR0201":
-                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0101":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0103":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0104":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0105":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
 
             pa.press("tab")
 
@@ -3441,7 +3530,7 @@ def gerar_ap():
             pa.press("tab")
             # Nota Fiscal
             pa.write(
-                str(naoContribuintesDia.loc[linha, "Número do documento_x"]))
+                str(naoContribuintesDia.loc[linha, "NFE"]))
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
@@ -3450,7 +3539,7 @@ def gerar_ap():
             pa.press("tab")
             time.sleep(1)
             # Data de vencimento campo prioridade
-            pa.write(str("VENC: " + dataVencimento))
+            pa.write(str("VENC: " + naoContribuintesDia.loc[linha, "Data de vencimento"]))
             pa.press("tab")
             time.sleep(0.5)
             pa.press("tab")
@@ -3460,7 +3549,7 @@ def gerar_ap():
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
-            pa.write(str(dataEmissao))
+            pa.write(str(naoContribuintesDia.loc[linha, "Data de emissão"]))
             pa.press("tab")
             pa.press("tab")
             pa.press("tab")
@@ -3480,19 +3569,14 @@ def gerar_ap():
             pa.press("tab")
             pa.write(str("BR1104"))
             pa.press("tab")
-            pa.moveTo(x=125, y=636)  # Programação de pagamento
+
+            pa.moveTo(x=143, y=630) 
             pa.click()
-            time.sleep(1)
-            pa.moveTo(x=49, y=717)  # Selecionar programação de pagamento
+            pa.moveTo(x=50, y=715)  # Programação de pagamento
             pa.click()
-            pa.press("del")
-            pa.press("left")
-            pa.press("enter")
-            pa.press("enter")
-            pa.moveTo(x=33, y=660)  # Programação de pagamento
-            pa.click()
-            pa.write(str(dataVencimento))
+            pa.write(str("08/05/2025"))
             pa.press("tab")
+   
             pa.moveTo(x=32, y=194)  # Sair salvando
             pa.click()
 
@@ -3500,7 +3584,7 @@ def gerar_ap():
     pa.click()
     time.sleep(1)
 
-    # Salvando GNRE
+    # Salvando GNREs
 
     for linha in naoContribuintesDia.index:
 
@@ -3511,83 +3595,21 @@ def gerar_ap():
             time.sleep(1)
 
             if codigoFilial[linha] == "BR0201":
-                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0101":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0103":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0104":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0105":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
 
-            pa.press("tab")
-
-            pa.moveTo(x=50, y=307)
-            pa.click()
-
-            pa.moveTo(x=1677, y=196)
-            pa.click()
-
-            pa.moveTo(x=1712, y=229)
-            pa.click()
-
-            pa.moveTo(x=472, y=704)
-            pa.click()
-
-            pa.moveToC
-            pa.click()
-            time.sleep(2)
-
-            pa.moveTo(x=1212, y=56)
-            pa.click()
-            pyperclip.copy(caminhoPasta)
-            pa.hotkey("ctrl", "v")
-            pa.press("enter")
-
-            pa.moveTo(x=1796, y=59)
-            pa.click()
-            # Descrição
-            pa.write(
-                str(naoContribuintesDia.loc[linha, "Número do documento_x"]))
-            pa.press("enter")
-            pa.moveTo(x=410, y=137)
-            pa.click()
-            pa.press("enter")
-            pa.moveTo(x=717, y=693)
-            pa.click()
-            pa.moveTo(x=30, y=195)
-            pa.click()
-            pa.moveTo(x=950, y=197)
-            pa.click()
-            time.sleep(10)
-
-            # Fundo de combate a pobreza
-            pa.moveTo(x=544, y=279)  # pesquisar gnre
-            time.sleep(1)
-            pa.click()
-            time.sleep(1)
-
-            if codigoFilial[linha] == "BR0201":
-                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
-            elif codigoFilial[linha] == "BR0101":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
-            elif codigoFilial[linha] == "BR0103":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
-            elif codigoFilial[linha] == "BR0104":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
-            elif codigoFilial[linha] == "BR0105":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"] + " - FCP"))  # Descrição
             pa.press("tab")
 
             pa.moveTo(x=50, y=307)
@@ -3606,25 +3628,186 @@ def gerar_ap():
             pa.click()
             time.sleep(2)
 
-            pa.moveTo(x=1212, y=56)
+            pa.moveTo(x=847, y=56) #Pesquisar caminho pasta
             pa.click()
-            pyperclip.copy(caminhoPasta)
-            pa.hotkey("ctrl", "v")
+
+            if mesRef[linha] == "01":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JAN " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "02":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE FEV " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")      
+            elif mesRef[linha] == "03":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE MAR " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "04":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE ABR " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "05":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE MAI " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "06":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JUN " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "07":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JUL " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "08":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE AGO " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "09":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE SET " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")        
+            elif mesRef[linha] == "10":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE OUT " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "11":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE NOV " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "12":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE DEZ " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+
             pa.press("enter")
 
-            pa.moveTo(x=1796, y=59)
+            pa.moveTo(x=1021, y=59) #Pesquisar NF
             pa.click()
-            # Descrição
             pa.write(
-                str(naoContribuintesDia.loc[linha, "Número do documento_x"]))
+                str(naoContribuintesDia.loc[linha, "NFE"]))
             pa.press("enter")
-            pa.moveTo(x=410, y=137)
+            pa.moveTo(x=435, y=201)
             pa.click()
             pa.press("enter")
             pa.moveTo(x=717, y=693)
             pa.click()
             pa.moveTo(x=30, y=195)
             pa.click()
+            time.sleep(3)
+
+            pa.moveTo(x=950, y=197)
+            pa.click()
+            time.sleep(10)
+     
+
+            # Fundo de combate a pobreza
+            pa.moveTo(x=544, y=279)  # pesquisar gnre
+            time.sleep(1)
+            pa.click()
+            time.sleep(1)
+
+            if codigoFilial[linha] == "BR0201":
+                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
+            elif codigoFilial[linha] == "BR0101":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
+            elif codigoFilial[linha] == "BR0103":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
+            elif codigoFilial[linha] == "BR0104":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
+            elif codigoFilial[linha] == "BR0105":
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"] + " - FCP"))  # Descrição
+            pa.press("tab")
+
+            pa.moveTo(x=50, y=307)
+            pa.click()
+
+            pa.moveTo(x=1677, y=196)
+            pa.click()
+
+            pa.moveTo(x=1712, y=229)
+            pa.click()
+
+            pa.moveTo(x=472, y=704)
+            pa.click()
+
+            pa.moveTo(x=907, y=577)
+            pa.click()
+            time.sleep(2)
+
+            pa.moveTo(x=847, y=56) #Pesquisar caminho pasta
+            pa.click()
+
+            if mesRef[linha] == "01":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JAN " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "02":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE FEV " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")      
+            elif mesRef[linha] == "03":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE MAR " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "04":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE ABR " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "05":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE MAI " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "06":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JUN " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "07":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JUL " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "08":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE AGO " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "09":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE SET " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")        
+            elif mesRef[linha] == "10":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE OUT " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "11":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE NOV " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "12":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE DEZ " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+
+            pa.press("enter")
+            pa.moveTo(x=1021, y=59) #Pesquisar NF
+            pa.click()
+            pa.write(
+                str(naoContribuintesDia.loc[linha, "NFE"] + " FCP"))
+            pa.press("enter")
+            pa.moveTo(x=354, y=146)
+            pa.click()
+            pa.press("enter")
+            pa.moveTo(x=717, y=693)
+            pa.click()
+            pa.moveTo(x=30, y=195)
+            pa.click()
+            time.sleep(3)
+
+
             pa.moveTo(x=950, y=197)
             pa.click()
             time.sleep(10)
@@ -3636,20 +3819,20 @@ def gerar_ap():
             time.sleep(1)
 
             if codigoFilial[linha] == "BR0201":
-                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS SP S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0101":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0103":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0104":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             elif codigoFilial[linha] == "BR0105":
-                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "Número do documento_x"])) + " - " + (
-                    naoContribuintesDia.loc[linha, "Estado/Município"]))  # Descrição
+                pa.write(str("DIFAL ICMS S/NF " + (naoContribuintesDia.loc[linha, "NFE"])) + " - " + (
+                    naoContribuintesDia.loc[linha, "UF"]))  # Descrição
             pa.press("tab")
 
             pa.moveTo(x=50, y=307)
@@ -3668,40 +3851,250 @@ def gerar_ap():
             pa.click()
             time.sleep(2)
 
-            pa.moveTo(x=1212, y=56)
+            pa.moveTo(x=847, y=56) #Pesquisar caminho pasta
             pa.click()
-            pyperclip.copy(caminhoPasta)
-            pa.hotkey("ctrl", "v")
-            pa.press("enter")
 
-            pa.moveTo(x=1796, y=59)
-            pa.click()
-            # Descrição
-            pa.write(
-                str(naoContribuintesDia.loc[linha, "Número do documento_x"]))
+            if mesRef[linha] == "01":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JAN " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "02":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE FEV " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")      
+            elif mesRef[linha] == "03":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE MAR " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "04":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE ABR " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "05":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE MAI " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "06":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JUN " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "07":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE JUL " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "08":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE AGO " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "09":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE SET " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")        
+            elif mesRef[linha] == "10":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE OUT " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "11":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE NOV " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+            elif mesRef[linha] == "12":
+                textCopy = caminhoPasta + " " + naoContribuintesDia.loc[linha, "Ano Referencia"] + "\\" + naoContribuintesDia.loc[linha, "Mês Referencia"]  + ". ARQUIVO GNRE DEZ " + naoContribuintesDia.loc[linha, "Ano Referencia"] 
+                pyperclip.copy(textCopy)
+                pa.hotkey("ctrl", "v")
+
             pa.press("enter")
-            pa.moveTo(x=410, y=137)
+            pa.moveTo(x=1021, y=59) #Pesquisar NF
+            pa.click()
+            pa.write(
+                str(naoContribuintesDia.loc[linha, "NFE"]))
+            pa.press("enter")
+            pa.moveTo(x=378, y=137)
             pa.click()
             pa.press("enter")
             pa.moveTo(x=717, y=693)
             pa.click()
             pa.moveTo(x=30, y=195)
             pa.click()
+
+            time.sleep(3)
             pa.moveTo(x=950, y=197)
             pa.click()
             time.sleep(8)
 
+    pa.moveTo(x=1893, y=137)
+    pa.click()
+    time.sleep(1)
     pa.hotkey("ctrl", "w")
-    pa.press("enter")
+    msg3 = "Lançamento das aps concluídas"
 
-    nfe_table1 = pd.read_excel(
-        r"C:\Users\juan.santos\Desktop\Gerador de GNRE\static\data\Não Contribuintes Visual.xlsx")
+    return render_template("index.html", msg=msg3)
 
-    nfe_table1
+@ app.route("/ler-barcode", methods=["GET", "POST"])
+def ler_barcode():
 
-    return render_template("index.html", tables=[nfe_table1.to_html()], titles=[''])
+    caminhoPastaGNRE = r"U:\Contabilidade\Movimento.Diario\Impostos e Contribuições\GNRE 2025\07. ARQUIVO GNRE JUL 2025"
+    planNCT = pd.read_excel("static\\data\\arquivo-nao-contribuinte\\Não Contribuintes.xlsx")
+    pastapng = r"static\data\gnre"
+
+    linha = 0
+
+
+    for unidadeFederativa in planNCT['UF']:
+
+        if unidadeFederativa == "AL":
+
+            pdfs = [i for i in os.listdir(caminhoPastaGNRE) if ".pdf" in i]
+            print(pdfs)
+
+            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\Library\bin')
+            print(caminhoPastaGNRE + "\\" + str(planNCT.loc[linha, 'NFE']) + ".pdf")
+
+            savegnre = pastapng + "\\" + str(planNCT.loc[linha, 'NFE'])
+
+            for page in pages:
+                page.save(savegnre+".png", 'PNG')
+
+            frame = cv2.imread(savegnre+".png")
+            detectedBarcode = decode(frame, symbols=[ZBarSymbol.I25])
+
+            if not detectedBarcode:
+                print("Código de barras nao lida")
+                linhaSpecif = planNCT.index == linha
+                planNCT.loc[linhaSpecif, ["Cód Barra"]] = "Código de barras nao lida"
+
+            else:
+                for barcode in detectedBarcode:
+                    if barcode.data != "":
+                        print(barcode.data.decode("UTF-8"))
+                        linhaSpecif = planNCT.index == linha
+                        planNCT.loc[linhaSpecif, ["Cód Barra"]] = [barcode.data.decode("UTF-8")]
+
+
+            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+" FCP.pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\Library\bin')
+            print(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+" FCP.pdf")
+
+            savegnre = pastapng + "\\" + str(planNCT.loc[linha, 'NFE'])
+
+            for page in pages:
+                page.save(savegnre+" FCP.png", 'PNG')
+
+            frame = cv2.imread(savegnre+" FCP.png")
+            detectedBarcode = decode(frame, symbols=[ZBarSymbol.I25])
+
+            if not detectedBarcode:
+                print("Código de barras nao lida")
+                planNCT["Cód Barra FCP"] = "Código de barras nao lida"
+                linhaSpecif = planNCT.index == linha
+                planNCT.loc[linhaSpecif, ["Cód Barra FCP"]] = "Código de barras nao lida"
+
+            else:
+                for barcode in detectedBarcode:
+                    if barcode.data != "":
+                        print(barcode.data.decode("UTF-8"))
+                        linhaSpecif = planNCT.index == linha
+                        planNCT.loc[linhaSpecif, ["Cód Barra FCP"]] = [barcode.data.decode("UTF-8")]
+
+        
+        else:
+
+            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\Library\bin')
+            print(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf")
+
+            savegnre = pastapng + "\\" + str(planNCT.loc[linha, 'NFE'])
+
+            for page in pages:
+                page.save(savegnre+".png", 'PNG')
+
+            frame = cv2.imread(savegnre+".png")
+            detectedBarcode = decode(frame, symbols=[ZBarSymbol.I25])
+
+            if not detectedBarcode:
+                print("Código de barras nao lida")
+                linhaSpecif = planNCT.index == linha
+                planNCT.loc[linhaSpecif, ["Cód Barra"]] = "Código de barras nao lida"
+
+            else:
+                for barcode in detectedBarcode:
+                    if barcode.data != "":
+                        print(barcode.data.decode("UTF-8"))
+                        linhaSpecif = planNCT.index == linha
+                        planNCT.loc[linhaSpecif, ["Cód Barra"]] = [barcode.data.decode("UTF-8")]
+
+        linha = linha + 1
+                    
+        
+
+    planNCT.drop(['Nota fiscal eletrônica',
+                'Referência fiscal',
+                'Status transmissão',
+                'Tipo doc. fiscal',
+                'Departamento',
+                'Parc. Negócios NF Fatura',
+                'Tipo identificador fiscal',
+                'Localizador',
+                'Entidade fiscal',
+                'Cidade',
+                'PN',
+                'Razão Social'
+                ],
+                axis=1, inplace=True)
+    
+    planNCT = planNCT.fillna('-')
+
+    planNCT["Data de emissão"] = pd.to_datetime(planNCT["Data de emissão"])
+    planNCT["Data de emissão"] = planNCT["Data de emissão"].dt.strftime('%d/%m/%Y')
+
+    planNCT["Data de vencimento"] = pd.to_datetime(planNCT["Data de vencimento"])
+    planNCT["Data de vencimento"] = planNCT["Data de vencimento"].dt.strftime('%d/%m/%Y')
+           
+    planNCT['Valor UF Destino'] = planNCT['Valor UF Destino'].map(
+        '{:_.2f}'.format)
+    planNCT['Valor UF Destino'] = planNCT['Valor UF Destino'].str.replace('.',',').str.replace('_','.')
+    planNCT['Valor FCP'] = planNCT['Valor FCP'].map(
+        '{:_.2f}'.format)
+    planNCT['Valor FCP'] = planNCT['Valor FCP'].str.replace('.',',').str.replace('_','.')
+    planNCT['Valor Total DIFAL'] = planNCT['Valor Total DIFAL'].map(
+        '{:_.2f}'.format)
+    planNCT['Valor Total DIFAL'] = planNCT['Valor Total DIFAL'].str.replace('.',',').str.replace('_','.')
+ 
+    planNCT = planNCT.rename(columns={"Valor UF Destino":"UF Dest.", "Valor FCP":"FCP", "Valor Total DIFAL":"DIFAL", "Mês Referencia": "Mês", "Ano Referencia":"Ano", "Data de vencimento":"Vencimento", 
+                                      "Valor FCP":"FCP", "Data de emissão":"Data"})
+
+
+
+    planNCT.to_excel(
+                    r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\NCT cód barras.xlsx", index=False)
+    
+    mensagem2 = "Planilha pronta para download"
+
+    nfe_table2 = pd.read_excel(
+    r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\NCT cód barras.xlsx")
+
+
+    def deletando_arquivos(folder_path):
+
+        try:
+            files = os.listdir(folder_path)
+            if len(files) == 0:
+                print(f"Sem arquivos a deletar")
+            else:
+                for file in files:
+                    file_path = os.path.join(folder_path, file)
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                    print("Feito!")
+        except OSError:
+            print("Erro, verificar")
+
+
+    deletando_arquivos(pastapng)
+        
+    return render_template("index.html", tables2=[nfe_table2.to_html()], titles=[''], msg2=mensagem2)
+
 
 
 if __name__ == '__main__':
-    port = int(os.getenv('PORT'), '5000')
-    app.run(host='0.0.0.0', port=port)
+    # port = int(os.getenv('PORT'), '5000')
+    # app.run(host='0.0.0.0', port=port)
+    app.run(debug=True)

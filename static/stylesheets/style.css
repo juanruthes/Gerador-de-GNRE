@@ -27,7 +27,6 @@ body {
   margin: 0 0 0 500px;
   position: absolute;
   font-weight: bold;
-  padding: 0 100px;
   top: 30px;
   font-size: 25px;
 }
@@ -47,6 +46,7 @@ h3 {
 .form-file {
   margin: 15px;
   padding-left: 325px;
+
 }
 
 .file-name-1 {
@@ -96,15 +96,18 @@ label:hover {
 .button-save,
 .button-ap {
   display: flex;
-  justify-content: center;
   align-items: center;
   padding: 20px;
+  margin-left: 370px;
+}
+
+.button-data-aprovador {
+  padding-left: 410px;
 }
 
 .button-data-ap,
 .button-data-aprovador {
-  text-align: center;
-  margin-bottom: 20px;
+  margin: 20px 0 20px 0;
 }
 
 .button-data-ap label,
@@ -183,11 +186,11 @@ th {
   color: black;
   border-collapse: collapse;
   text-align: center;
+  border: unset;
 }
 
 td {
   border: none;
-  text-align: center;
   padding-left: 10px;
   padding-right: 10px;
 }
@@ -208,4 +211,6 @@ th:nth-child(6) {
   font-size: 14px;
   font-weight: 900;
   margin: unset;
+  width: 250px;
+  padding-left: 50px;
 }
