@@ -17,8 +17,8 @@ aprovador = "013078"
 app = Flask(__name__, template_folder="templates")
 
 UPLOAD_FOLDER = os.path.join(os.getcwd(), 'data')
-DIRXML = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\static\\data\\xml"
-DIRXLSX = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\Gerador de GNRE - Copia\\static\\data\\arquivo-nao-contribuinte"
+DIRXML = "static/data/xml"
+DIRXLSX = "static/data/arquivo-nao-contribuinte"
 
 caminhoPasta = r"U:\Contabilidade\Movimento.Diario\Impostos e Contribuições\GNRE"
 
@@ -54,11 +54,9 @@ def planilha_gerada():
 
     data_venc = request.form.get('vencimento-data')
 
-    linhas_nfe = pd.read_excel(
-        r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\data\Linhas_da_NFE.xlsx')
+    linhas_nfe = pd.read_excel("data/Linhas_da_NFE.xlsx")
 
-    cadastro = pd.read_excel(
-        r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\data\Parceiro de negocios.xlsx')
+    cadastro = pd.read_excel("data/Parceiro de negocios.xlsx")
 
     linhas_nfe.drop(['Import Status',
                     'Import Code',
@@ -147,8 +145,7 @@ def planilha_gerada():
 
     # Tratamento com a planilha Nota Fiscal
 
-    notafiscal = pd.read_excel(
-        r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\data\Nota_Fiscal.xlsx')
+    notafiscal = pd.read_excel("data/Nota_Fiscal.xlsx")
 
     notafiscal.drop(['Import Status',
                     'Import Code',
@@ -325,12 +322,10 @@ def planilha_gerada():
     notafiscal = notafiscal.rename(columns={"NFE":"NFE", "Unnamed: 12":"Razão Social", "Departamento_x":"Departamento", "Estado/Município": "UF", "Parceiro de negócios faturado":"PN", "Número do documento_x":"NFE", "Valor Fundo Combate Pobreza":"Valor FCP"})
 
 
-    notafiscal.to_excel(
-        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", index=False)
+    notafiscal.to_excel("static/data/arquivo-nao-contribuinte/Não Contribuintes.xlsx", index=False)
 
     # Tratamento da segunda planilha
-    nfe_table = pd.read_excel(
-        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx")
+    nfe_table = pd.read_excel("static/data/arquivo-nao-contribuinte/Não Contribuintes.xlsx")
 
     nfe_table.drop(['Referência fiscal', 'Nota fiscal eletrônica',
                     'Status transmissão', 'Tipo doc. fiscal', 'Departamento', 'Localizador', 'Entidade fiscal', 'Cidade', 'Tipo identificador fiscal', 'Mês Referencia', 'Ano Referencia', 'Parc. Negócios NF Fatura'],
@@ -365,7 +360,7 @@ def planilha_gerada():
     #Gerando XML
 
     naoContribuintesDia = pd.read_excel(
-        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
+        "static/data/arquivo-nao-contribuinte/Não Contribuintes.xlsx", dtype=str)
 
     loteGNRE = ET.Element('TLote_GNRE')
     loteGNRE.attrib["versao"] = '2.00'
@@ -3101,7 +3096,7 @@ def planilha_gerada():
 
 
     # caminhoPastaTrat = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\static\\data\\xml\\"+"loteGNRE-"+formatted_date1+".xml"
-    caminhoPastaTrat = "C:\\Users\\juan.santos\\Documents\\Juan\\Juan\\Gerador de GNRE - Copia\\static\\data\\xml\\"+"loteGNRE.xml"
+    caminhoPastaTrat = "static\\data\\xml\\"+"loteGNRE.xml"
     caminhoPastaTrat
 
     tree.write(caminhoPastaTrat,
@@ -3109,10 +3104,10 @@ def planilha_gerada():
 
     #Gerando visual tabela
     nfe_table.to_excel(
-        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\Não Contribuintes Visual.xlsx", index=False)
+        "static/data/Não Contribuintes Visual.xlsx", index=False)
 
     nfe_table1 = pd.read_excel(
-        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\Não Contribuintes Visual.xlsx")
+        "static/data/Não Contribuintes Visual.xlsx")
 
     nfe_table1
 
@@ -3167,7 +3162,7 @@ def gerar_ap():
     print(request.form.get('check-aprovador'))
 
     naoContribuintesDia = pd.read_excel(
-        r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\Não Contribuintes.xlsx", dtype=str)
+        "../static/data/arquivo-nao-contribuinte/Não Contribuintes.xlsx", dtype=str)
     
     #formatando data como DD/MM/AAAA
     naoContribuintesDia["Data de emissão"] = pd.to_datetime(naoContribuintesDia["Data de emissão"])
@@ -3947,7 +3942,7 @@ def ler_barcode():
             pdfs = [i for i in os.listdir(caminhoPastaGNRE) if ".pdf" in i]
             print(pdfs)
 
-            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\Library\bin')
+            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\ibrary\bin')
             print(caminhoPastaGNRE + "\\" + str(planNCT.loc[linha, 'NFE']) + ".pdf")
 
             savegnre = pastapng + "\\" + str(planNCT.loc[linha, 'NFE'])
@@ -3971,7 +3966,7 @@ def ler_barcode():
                         planNCT.loc[linhaSpecif, ["Cód Barra"]] = [barcode.data.decode("UTF-8")]
 
 
-            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+" FCP.pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\Library\bin')
+            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+" FCP.pdf", dpi=500, poppler_path="../poppler-24.08.0/Library/bin")
             print(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+" FCP.pdf")
 
             savegnre = pastapng + "\\" + str(planNCT.loc[linha, 'NFE'])
@@ -3998,7 +3993,7 @@ def ler_barcode():
         
         else:
 
-            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf", dpi=500, poppler_path=r'C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\poppler-24.08.0\Library\bin')
+            pages = convert_from_path(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf", dpi=500, poppler_path="poppler-24.08.0/Library/bin")
             print(caminhoPastaGNRE+"\\"+str(planNCT.loc[linha, 'NFE'])+".pdf")
 
             savegnre = pastapng + "\\" + str(planNCT.loc[linha, 'NFE'])
@@ -4064,12 +4059,11 @@ def ler_barcode():
 
 
     planNCT.to_excel(
-                    r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\NCT cód barras.xlsx", index=False)
-    
+                    "static/data/arquivo-nao-contribuinte/NCT cód barras.xlsx", index=False)    
     mensagem2 = "Planilha pronta para download"
 
     nfe_table2 = pd.read_excel(
-    r"C:\Users\juan.santos\Documents\Juan\Juan\Gerador de GNRE - Copia\static\data\arquivo-nao-contribuinte\NCT cód barras.xlsx")
+    "static/data/arquivo-nao-contribuinte/NCT cód barras.xlsx")
 
 
     def deletando_arquivos(folder_path):
